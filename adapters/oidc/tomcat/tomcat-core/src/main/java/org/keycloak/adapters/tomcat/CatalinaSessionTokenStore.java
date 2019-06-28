@@ -20,13 +20,17 @@ package org.keycloak.adapters.tomcat;
 import org.apache.catalina.Session;
 import org.apache.catalina.connector.Request;
 import org.apache.catalina.realm.GenericPrincipal;
+import org.apache.http.auth.AuthenticationException;
 import org.keycloak.KeycloakSecurityContext;
 import org.keycloak.adapters.AdapterTokenStore;
 import org.keycloak.adapters.KeycloakDeployment;
 import org.keycloak.adapters.OidcKeycloakAccount;
 import org.keycloak.adapters.RefreshableKeycloakSecurityContext;
 import org.keycloak.adapters.RequestAuthenticator;
+import org.keycloak.adapters.jaas.AbstractKeycloakLoginModule;
+import org.keycloak.representations.IDToken;
 
+import javax.servlet.http.HttpSession;
 import java.io.Serializable;
 import java.security.Principal;
 import java.util.Set;
@@ -92,6 +96,34 @@ public class CatalinaSessionTokenStore extends CatalinaAdapterSessionStore imple
         request.setAuthType(null);
         cleanSession(catalinaSession);
         catalinaSession.expire();
+    }
+
+    public void checkTokenNonce() throws AuthenticationException {
+        if (!deployment.isUseNonce()) {
+            return;
+        }
+        Session catalinaSession = request.getSessionInternal(false);
+        if (catalinaSession == null)
+            throw new AuthenticationException("catalina request has no session, cannot check nonce");
+        SerializableKeycloakAccount account = (SerializableKeycloakAccount) catalinaSession.getSession().getAttribute(SerializableKeycloakAccount.class.getName());
+        if (account == null || account.securityContext == null) {
+            throw new AuthenticationException("catalina session has no keycloak account stored");
+        }
+        final IDToken idToken = account.securityContext.getIdToken();
+        if (idToken == null) {
+            throw new AuthenticationException("cannot check nonce, ID token is null");
+        }
+        HttpSession requestSession = request.getSession(false);
+        if (requestSession == null) {
+            throw new AuthenticationException("cannot check nonce, request session is null");
+        }
+        String requestSessionNonce = (String) requestSession.getAttribute("nonce");
+        String idTokenNonce = idToken.getNonce();
+        if (idTokenNonce == null || idTokenNonce.isEmpty() || requestSessionNonce == null ||
+                requestSessionNonce.isEmpty() || !idTokenNonce.equals(requestSessionNonce)) {
+            throw new AuthenticationException("idToken and session have a different nonce (" + idTokenNonce +
+                    " != " + requestSessionNonce + ")");
+        }
     }
 
     protected void cleanSession(Session catalinaSession) {

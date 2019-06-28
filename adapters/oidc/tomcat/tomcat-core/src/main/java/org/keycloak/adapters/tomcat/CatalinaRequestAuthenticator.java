@@ -17,7 +17,9 @@
 
 package org.keycloak.adapters.tomcat;
 
+import org.apache.catalina.Session;
 import org.apache.catalina.connector.Request;
+import org.apache.http.auth.AuthenticationException;
 import org.keycloak.KeycloakPrincipal;
 import org.keycloak.KeycloakSecurityContext;
 import org.keycloak.adapters.AdapterTokenStore;
@@ -27,6 +29,7 @@ import org.keycloak.adapters.OAuthRequestAuthenticator;
 import org.keycloak.adapters.OidcKeycloakAccount;
 import org.keycloak.adapters.RefreshableKeycloakSecurityContext;
 import org.keycloak.adapters.RequestAuthenticator;
+import org.keycloak.adapters.spi.AuthOutcome;
 
 import javax.servlet.http.HttpSession;
 import java.security.Principal;
@@ -39,7 +42,7 @@ import java.util.logging.Logger;
  * @version $Revision: 1 $
  */
 public class CatalinaRequestAuthenticator extends RequestAuthenticator {
-    private static final Logger log = Logger.getLogger(""+CatalinaRequestAuthenticator.class);
+    private static final Logger log = Logger.getLogger("" + CatalinaRequestAuthenticator.class);
     protected Request request;
     protected GenericPrincipalFactory principalFactory;
 
@@ -56,6 +59,46 @@ public class CatalinaRequestAuthenticator extends RequestAuthenticator {
     @Override
     protected OAuthRequestAuthenticator createOAuthAuthenticator() {
         return new OAuthRequestAuthenticator(this, facade, deployment, sslRedirectPort, tokenStore);
+    }
+
+    @Override
+    public AuthOutcome authenticate() {
+        // Nonce implementation is off by default and can be enabled via configuration.
+        // In this case nonce will be generated and stored in the catalina session for
+        // later validation.
+        String sessionNonce = null;
+        if (this.deployment.isUseNonce()) {
+            Session catalinaSession = request.getSessionInternal(false);
+            if (catalinaSession != null) {
+                catalinaSession.access();
+                sessionNonce = (String) catalinaSession.getSession().getAttribute("nonce");
+                if (sessionNonce == null || sessionNonce.isEmpty()) {
+                    log.finest("generating nonce for auth session");
+                    sessionNonce = AdapterUtils.generateId();
+                    catalinaSession.getSession().setAttribute("nonce", sessionNonce);
+                } else {
+                    log.finest("found nonce in current catalina session");
+                }
+                catalinaSession.endAccess();
+            }
+        }
+
+        AuthOutcome preCheck = super.authenticate(sessionNonce);
+        if (preCheck != AuthOutcome.AUTHENTICATED) {
+            return preCheck;
+        }
+
+        if(deployment.isUseNonce() && tokenStore instanceof CatalinaSessionTokenStore) {
+            CatalinaSessionTokenStore catalinaSessionTokenStore = (CatalinaSessionTokenStore)tokenStore;
+            try {
+                catalinaSessionTokenStore.checkTokenNonce();
+            } catch (AuthenticationException aue){
+                log.fine("failed to validate nonce: " + aue.getMessage());
+                return AuthOutcome.FAILED;
+            }
+        }
+
+        return AuthOutcome.AUTHENTICATED;
     }
 
     @Override
