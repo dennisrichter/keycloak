@@ -83,7 +83,6 @@ public class CatalinaRequestAuthenticator extends RequestAuthenticator {
      * <p>
      * Replay of Authorized Resource Server Requests
      *
-     * @return null if deactivated (default), else a secure random nonce string
      * @link https://tools.ietf.org/html/rfc6819#section-4.6.2
      * <p>
      * Signed Requests
@@ -92,6 +91,8 @@ public class CatalinaRequestAuthenticator extends RequestAuthenticator {
      * The implementation is off by default and can be enabled via configuration.
      * In this case nonce will be generated and stored in the catalina session for
      * later validation.
+     *
+     * @return null if deactivated (default), else a secure random nonce string
      */
     private String nonce() {
         if (!this.deployment.isUseNonce()) {
