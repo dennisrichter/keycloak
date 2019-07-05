@@ -63,42 +63,61 @@ public class CatalinaRequestAuthenticator extends RequestAuthenticator {
 
     @Override
     public AuthOutcome authenticate() {
-        // Nonce implementation is off by default and can be enabled via configuration.
-        // In this case nonce will be generated and stored in the catalina session for
-        // later validation.
-        String sessionNonce = null;
-        if (this.deployment.isUseNonce()) {
-            Session catalinaSession = request.getSessionInternal(false);
-            if (catalinaSession != null) {
-                catalinaSession.access();
-                sessionNonce = (String) catalinaSession.getSession().getAttribute("nonce");
-                if (sessionNonce == null || sessionNonce.isEmpty()) {
-                    log.finest("generating nonce for auth session");
-                    sessionNonce = AdapterUtils.generateId();
-                    catalinaSession.getSession().setAttribute("nonce", sessionNonce);
-                } else {
-                    log.finest("found nonce in current catalina session");
-                }
-                catalinaSession.endAccess();
-            }
-        }
+        String sessionNonce = nonce();
 
         AuthOutcome preCheck = super.authenticate(sessionNonce);
         if (preCheck != AuthOutcome.AUTHENTICATED) {
             return preCheck;
         }
 
-        if(deployment.isUseNonce() && tokenStore instanceof CatalinaSessionTokenStore) {
-            CatalinaSessionTokenStore catalinaSessionTokenStore = (CatalinaSessionTokenStore)tokenStore;
+        if (deployment.isUseNonce() && tokenStore instanceof CatalinaSessionTokenStore) {
+            CatalinaSessionTokenStore catalinaSessionTokenStore = (CatalinaSessionTokenStore) tokenStore;
             try {
                 catalinaSessionTokenStore.checkTokenNonce();
-            } catch (AuthenticationException aue){
+            } catch (AuthenticationException aue) {
                 log.fine("failed to validate nonce: " + aue.getMessage());
                 return AuthOutcome.FAILED;
             }
         }
 
         return AuthOutcome.AUTHENTICATED;
+    }
+
+    /**
+     * The concept of a signed request is a security enhancement to prevent valid requests
+     * from being replied.
+     *
+     * Replay of Authorized Resource Server Requests
+     * @link https://tools.ietf.org/html/rfc6819#section-4.6.2
+     *
+     * Signed Requests
+     * @link https://tools.ietf.org/html/rfc6819#section-5.4.3
+     *
+     * The implementation is off by default and can be enabled via configuration.
+     * In this case nonce will be generated and stored in the catalina session for
+     * later validation.
+     *
+     * @return null if deactivated (default), else a secure random nonce string
+     */
+    private String nonce() {
+        if (!this.deployment.isUseNonce()) {
+            return null;
+        }
+        String sessionNonce = null;
+        Session catalinaSession = request.getSessionInternal(false);
+        if (catalinaSession != null) {
+            catalinaSession.access();
+            sessionNonce = (String) catalinaSession.getSession().getAttribute("nonce");
+            if (sessionNonce == null || sessionNonce.isEmpty()) {
+                log.finest("generating nonce for auth session");
+                sessionNonce = AdapterUtils.generateId();
+                catalinaSession.getSession().setAttribute("nonce", sessionNonce);
+            } else {
+                log.finest("found nonce in current catalina session");
+            }
+            catalinaSession.endAccess();
+        }
+        return sessionNonce;
     }
 
     @Override
