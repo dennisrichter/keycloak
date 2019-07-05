@@ -28,6 +28,7 @@ import org.keycloak.adapters.OidcKeycloakAccount;
 import org.keycloak.adapters.RefreshableKeycloakSecurityContext;
 import org.keycloak.adapters.RequestAuthenticator;
 import org.keycloak.adapters.jaas.AbstractKeycloakLoginModule;
+import org.keycloak.representations.AccessToken;
 import org.keycloak.representations.IDToken;
 
 import javax.servlet.http.HttpSession;
@@ -98,10 +99,13 @@ public class CatalinaSessionTokenStore extends CatalinaAdapterSessionStore imple
         catalinaSession.expire();
     }
 
+    /**
+     * This method checks the nonce from the session and access token.
+     * After being used ONCE, the session nonce will be deleted.
+     *
+     * @throws AuthenticationException failed check
+     */
     public void checkTokenNonce() throws AuthenticationException {
-        if (!deployment.isUseNonce()) {
-            return;
-        }
         Session catalinaSession = request.getSessionInternal(false);
         if (catalinaSession == null)
             throw new AuthenticationException("catalina request has no session, cannot check nonce");
@@ -109,19 +113,24 @@ public class CatalinaSessionTokenStore extends CatalinaAdapterSessionStore imple
         if (account == null || account.securityContext == null) {
             throw new AuthenticationException("catalina session has no keycloak account stored");
         }
-        final IDToken idToken = account.securityContext.getIdToken();
-        if (idToken == null) {
-            throw new AuthenticationException("cannot check nonce, ID token is null");
+        final AccessToken accessToken = account.securityContext.getToken();
+        if (accessToken == null) {
+            throw new AuthenticationException("cannot check nonce, access token is null");
         }
         HttpSession requestSession = request.getSession(false);
         if (requestSession == null) {
             throw new AuthenticationException("cannot check nonce, request session is null");
         }
         String requestSessionNonce = (String) requestSession.getAttribute("nonce");
-        String idTokenNonce = idToken.getNonce();
-        if (idTokenNonce == null || idTokenNonce.isEmpty() || requestSessionNonce == null ||
-                requestSessionNonce.isEmpty() || !idTokenNonce.equals(requestSessionNonce)) {
-            throw new AuthenticationException("idToken and session have a different nonce (" + idTokenNonce +
+        String tokenNonce = accessToken.getNonce();
+        if (tokenNonce == null || tokenNonce.isEmpty()) {
+            throw new AuthenticationException("access token has no valid nonce");
+        }
+        if (requestSessionNonce == null || requestSessionNonce.isEmpty()) {
+            throw new AuthenticationException("session token doesn't contain a nonce, but it's required");
+        }
+        if (!tokenNonce.equals(requestSessionNonce)) {
+            throw new AuthenticationException("access token and session have a different nonce (" + tokenNonce +
                     " != " + requestSessionNonce + ")");
         }
     }

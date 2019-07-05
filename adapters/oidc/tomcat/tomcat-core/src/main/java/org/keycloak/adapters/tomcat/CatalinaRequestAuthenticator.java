@@ -70,14 +70,8 @@ public class CatalinaRequestAuthenticator extends RequestAuthenticator {
             return preCheck;
         }
 
-        if (deployment.isUseNonce() && tokenStore instanceof CatalinaSessionTokenStore) {
-            CatalinaSessionTokenStore catalinaSessionTokenStore = (CatalinaSessionTokenStore) tokenStore;
-            try {
-                catalinaSessionTokenStore.checkTokenNonce();
-            } catch (AuthenticationException aue) {
-                log.fine("failed to validate nonce: " + aue.getMessage());
-                return AuthOutcome.FAILED;
-            }
+        if (deployment.isUseNonce()) {
+            return checkNonce();
         }
 
         return AuthOutcome.AUTHENTICATED;
@@ -86,18 +80,18 @@ public class CatalinaRequestAuthenticator extends RequestAuthenticator {
     /**
      * The concept of a signed request is a security enhancement to prevent valid requests
      * from being replied.
-     *
+     * <p>
      * Replay of Authorized Resource Server Requests
-     * @link https://tools.ietf.org/html/rfc6819#section-4.6.2
      *
+     * @return null if deactivated (default), else a secure random nonce string
+     * @link https://tools.ietf.org/html/rfc6819#section-4.6.2
+     * <p>
      * Signed Requests
      * @link https://tools.ietf.org/html/rfc6819#section-5.4.3
-     *
+     * <p>
      * The implementation is off by default and can be enabled via configuration.
      * In this case nonce will be generated and stored in the catalina session for
      * later validation.
-     *
-     * @return null if deactivated (default), else a secure random nonce string
      */
     private String nonce() {
         if (!this.deployment.isUseNonce()) {
@@ -118,6 +112,20 @@ public class CatalinaRequestAuthenticator extends RequestAuthenticator {
             catalinaSession.endAccess();
         }
         return sessionNonce;
+    }
+
+    private AuthOutcome checkNonce() {
+        try {
+            CatalinaSessionTokenStore catalinaSessionTokenStore = (CatalinaSessionTokenStore) tokenStore;
+            catalinaSessionTokenStore.checkTokenNonce();
+            return AuthOutcome.AUTHENTICATED;
+        } catch (AuthenticationException aue) {
+            log.fine("failed to validate nonce: " + aue.getMessage());
+            return AuthOutcome.FAILED;
+        } catch (Exception e){
+            log.fine("error occured during nonce validation: " + e.getMessage());
+            return AuthOutcome.FAILED;
+        }
     }
 
     @Override
