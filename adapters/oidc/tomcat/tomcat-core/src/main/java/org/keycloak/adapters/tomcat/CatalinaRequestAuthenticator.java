@@ -83,6 +83,7 @@ public class CatalinaRequestAuthenticator extends RequestAuthenticator {
      * <p>
      * Replay of Authorized Resource Server Requests
      *
+     * @return null if deactivated (default), else a secure random nonce string
      * @link https://tools.ietf.org/html/rfc6819#section-4.6.2
      * <p>
      * Signed Requests
@@ -91,28 +92,26 @@ public class CatalinaRequestAuthenticator extends RequestAuthenticator {
      * The implementation is off by default and can be enabled via configuration.
      * In this case nonce will be generated and stored in the catalina session for
      * later validation.
-     *
-     * @return null if deactivated (default), else a secure random nonce string
      */
     private String nonce() {
         if (!this.deployment.isUseNonce()) {
             return null;
         }
-        String sessionNonce = null;
         Session catalinaSession = request.getSessionInternal(false);
         if (catalinaSession != null) {
             catalinaSession.access();
-            sessionNonce = (String) catalinaSession.getSession().getAttribute("nonce");
+            final String sessionNonce = (String) catalinaSession.getSession().getAttribute("nonce");
             if (sessionNonce == null || sessionNonce.isEmpty()) {
                 log.finest("generating nonce for auth session");
-                sessionNonce = AdapterUtils.generateId();
-                catalinaSession.getSession().setAttribute("nonce", sessionNonce);
-            } else {
-                log.finest("found nonce in current catalina session");
+                String freshNonce = AdapterUtils.generateId();
+                catalinaSession.getSession().setAttribute("nonce", freshNonce);
+                return freshNonce;
             }
+            log.finest("found existing nonce in current catalina session");
             catalinaSession.endAccess();
+            return sessionNonce;
         }
-        return sessionNonce;
+        return null;
     }
 
     private AuthOutcome checkNonce() {
@@ -123,7 +122,7 @@ public class CatalinaRequestAuthenticator extends RequestAuthenticator {
         } catch (AuthenticationException aue) {
             log.fine("failed to validate nonce: " + aue.getMessage());
             return AuthOutcome.FAILED;
-        } catch (Exception e){
+        } catch (Exception e) {
             log.fine("error occured during nonce validation: " + e.getMessage());
             return AuthOutcome.FAILED;
         }

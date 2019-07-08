@@ -105,11 +105,17 @@ public class CatalinaSessionTokenStore extends CatalinaAdapterSessionStore imple
      *
      * @throws AuthenticationException failed check
      */
-    public void checkTokenNonce() throws AuthenticationException {
+    void checkTokenNonce() throws AuthenticationException {
+        String code = request.getParameter("code");
+        // checking nonce and invalidation doesn't make sense when we're in the middle of the code flow.
+        if (code != null && !code.isEmpty()) {
+            return;
+        }
         Session catalinaSession = request.getSessionInternal(false);
         if (catalinaSession == null)
             throw new AuthenticationException("catalina request has no session, cannot check nonce");
-        SerializableKeycloakAccount account = (SerializableKeycloakAccount) catalinaSession.getSession().getAttribute(SerializableKeycloakAccount.class.getName());
+        final HttpSession session = catalinaSession.getSession();
+        SerializableKeycloakAccount account = (SerializableKeycloakAccount) session.getAttribute(SerializableKeycloakAccount.class.getName());
         if (account == null || account.securityContext == null) {
             throw new AuthenticationException("catalina session has no keycloak account stored");
         }
@@ -133,6 +139,9 @@ public class CatalinaSessionTokenStore extends CatalinaAdapterSessionStore imple
             throw new AuthenticationException("access token and session have a different nonce (" + tokenNonce +
                     " != " + requestSessionNonce + ")");
         }
+        // after every check went fine, we have to delete nonce, since it cannot be used again
+        session.removeAttribute("nonce");
+        catalinaSession.expire();
     }
 
     protected void cleanSession(Session catalinaSession) {
